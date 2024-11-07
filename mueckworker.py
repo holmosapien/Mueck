@@ -2,16 +2,16 @@ import time
 
 from lib.log_handler import setup_logger
 
-from lib.database import Database
 from lib.image_generator import ImageGenerator
 from lib.models.mueck import RawImageRequest, ParsedImageRequest
 from lib.prompt_processor import PromptProcessor
+from lib.queue import ImageQueue
 
 logger = setup_logger()
 
 class MueckWorker:
     def __init__(self):
-        self.database = Database()
+        self.image_queue = ImageQueue()
         self.generator = ImageGenerator()
         self.prompt_processor = PromptProcessor()
 
@@ -19,7 +19,7 @@ class MueckWorker:
         logger.info("Mueck worker started.")
 
         while True:
-            queue = self.database.get_image_requests()
+            queue = self.image_queue.get_requests(include_processed=False)
 
             for request in queue:
                 request_id = request.request_id
@@ -34,7 +34,7 @@ class MueckWorker:
                 else:
                     logger.info(f"Unknown request type {request_type}")
 
-                    self.database.complete_request(request, [])
+                    self.image_queue.complete_request(request, [])
 
                     continue
 
@@ -42,7 +42,7 @@ class MueckWorker:
 
                 logger.info(f"Generated {len(filenames)} images for request {request_id}")
 
-                self.database.complete_request(parsed_request, filenames)
+                self.image_queue.complete_request(parsed_request, filenames)
 
                 logger.info(f"Completed request {request_id}")
 
@@ -51,7 +51,7 @@ class MueckWorker:
     def process_raw_image_request(self, request: RawImageRequest):
         parsed_request = self.prompt_processor.process(request)
 
-        self.database.add_request_parameters(parsed_request)
+        self.image_queue.add_request_parameters(parsed_request)
 
         return parsed_request
 

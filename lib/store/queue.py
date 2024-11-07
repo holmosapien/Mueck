@@ -3,9 +3,14 @@ import psycopg
 
 from psycopg.rows import dict_row
 
-from lib.models.mueck import ImageRequest, ParsedImageRequest, RawImageRequest
+from lib.models.mueck import (
+    ImageRequest,
+    ParsedImageRequest,
+    RawImageRequest,
+    ImageRequestFilter
+)
 
-class Database:
+class QueueStore:
     def __init__(self):
         self.dbh = self.connect()
 
@@ -59,6 +64,7 @@ class Database:
             image_request = RawImageRequest(
                 request_id=request_id,
                 prompt=request.prompt,
+                processed=False,
                 user_id=request.user_id,
                 created=created
             )
@@ -67,8 +73,44 @@ class Database:
 
         return image_request
 
-    def get_image_requests(self) -> list[RawImageRequest | ParsedImageRequest]:
-        query = """
+    def get_request(self, request_id) -> RawImageRequest | ParsedImageRequest:
+        filters = ImageRequestFilter(request_ids=[request_id])
+        requests = self.get_requests(filters=filters, include_processed=True)
+
+        if len(requests) == 0:
+            return None
+
+        return requests[0]
+
+    def get_requests(
+        self,
+        filters: ImageRequestFilter = None,
+        include_processed=False
+    ) -> list[RawImageRequest | ParsedImageRequest]:
+        where = []
+        values = []
+
+        if filters is not None:
+            if filters.request_ids:
+                w = self.generate_placeholders("rq.id", filters.request_ids)
+
+                where.append(w)
+                values.extend(filters.request_ids)
+
+            if filters.user_ids:
+                w = self.generate_placeholders("rq.user_id", filters.user_ids)
+
+                where.append(w)
+                values.extend(filters.user_ids)
+
+        if not include_processed:
+            where.append("rq.processed = %s")
+            values.append(False)
+
+        if len(where) == 0:
+            where.append("1 = 1")
+
+        query = f"""
             SELECT
                 rq.id AS request_id,
                 rq.prompt AS raw_prompt,
@@ -76,6 +118,7 @@ class Database:
                 rp.width,
                 rp.height,
                 rp.count,
+                rq.processed,
                 rq.user_id,
                 rq.created
             FROM
@@ -85,13 +128,13 @@ class Database:
             ON
                 rq.id = rp.request_id
             WHERE
-                rq.processed = %s
+                {" AND ".join(where)}
         """
 
         queue = []
 
         with self.dbh.cursor() as cursor:
-            cursor.execute(query, (False,))
+            cursor.execute(query, values)
 
             for row in cursor:
                 parsed_prompt = row["prompt"]
@@ -103,6 +146,7 @@ class Database:
                         width=row["width"],
                         height=row["height"],
                         count=row["count"],
+                        processed=row["processed"],
                         user_id=row["user_id"],
                         created=row["created"]
                     )
@@ -110,6 +154,7 @@ class Database:
                     request = RawImageRequest(
                         request_id=row["request_id"],
                         prompt=row["raw_prompt"],
+                        processed=row["processed"],
                         user_id=row["user_id"],
                         created=row["created"]
                     )
@@ -181,3 +226,12 @@ class Database:
             cursor.execute(query, (True, request_id))
 
         self.dbh.commit()
+
+    def generate_placeholders(self, column, values) -> str:
+        placeholders = ["%s" for _ in values]
+
+        p = ", ".join(placeholders)
+
+        where = f"{column} IN ({p})"
+
+        return where

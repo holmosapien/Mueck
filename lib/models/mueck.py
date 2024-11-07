@@ -8,9 +8,17 @@ class ImageRequest(BaseModel):
 
 class RawImageRequest(ImageRequest):
     request_id: int
+    processed: bool
     created: datetime.datetime
 
 class ParsedImageRequest(RawImageRequest):
     width: int
     height: int
     count: int
+
+class ImageRequestFilter(BaseModel):
+    request_ids: list[int] = []
+    user_ids: list[str] = []
+
+class ImageRequests(BaseModel):
+    requests: list[RawImageRequest | ParsedImageRequest]

@@ -24,6 +24,7 @@ class PromptProcessor:
             width=512,
             height=512,
             count=1,
+            processed=False,
             user_id=request.user_id,
             created=request.created
         )
