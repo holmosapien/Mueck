@@ -1,59 +1,51 @@
+import requests
 import time
 
-from lib.log_handler import setup_logger
-
-from lib.image_generator import ImageGenerator
-from lib.models.mueck import RawImageRequest, ParsedImageRequest
-from lib.prompt_processor import PromptProcessor
-from lib.queue import ImageQueue
-
-logger = setup_logger()
+from lib.context import MueckContext
+from lib.slack_event import SlackEvent
+from lib.tensor_art import TensorArtJob
 
 class MueckWorker:
     def __init__(self):
-        self.image_queue = ImageQueue()
-        self.generator = ImageGenerator()
-        self.prompt_processor = PromptProcessor()
+        self.context = MueckContext()
 
     def run(self):
-        logger.info("Mueck worker started.")
+        self.context.logger.info("Mueck worker started.")
 
         while True:
-            queue = self.image_queue.get_requests(include_processed=False)
+            event = SlackEvent.from_next_unprocessed(self.context)
 
-            for request in queue:
-                request_id = request.request_id
-                request_type = type(request)
+            if not event:
+                time.sleep(10)
 
-                logger.info(f"Processing request {request_id} of type {request_type}")
+                continue
 
-                if request_type is RawImageRequest:
-                    parsed_request = self.process_raw_image_request(request)
-                elif request_type is ParsedImageRequest:
-                    parsed_request = request
-                else:
-                    logger.info(f"Unknown request type {request_type}")
+            self.context.logger.info(f"Processing event_id={event.id}")
 
-                    self.image_queue.complete_request(request, [])
+            job = event.process_event()
 
-                    continue
+            self.__wait_for_job_completion(job)
 
-                filenames = self.generator.generate_image(parsed_request)
+            event.save_images(job.images)
+            event.mark_event_as_processed()
 
-                logger.info(f"Generated {len(filenames)} images for request {request_id}")
+    def __wait_for_job_completion(self, job: TensorArtJob):
+        previous_status = job.status
 
-                self.image_queue.complete_request(parsed_request, filenames)
+        while True:
+            job.get_job()
 
-                logger.info(f"Completed request {request_id}")
+            if job.status == "completed":
+                job.save_images()
 
-            time.sleep(10)
+                return
+            else:
+                print(f"Job is in status={job.status}")
 
-    def process_raw_image_request(self, request: RawImageRequest):
-        parsed_request = self.prompt_processor.process(request)
+                # if job.status != previous_status:
+                #     job.update_status()
 
-        self.image_queue.add_request_parameters(parsed_request)
-
-        return parsed_request
+                time.sleep(5)
 
 if __name__ == "__main__":
     worker = MueckWorker()

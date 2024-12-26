@@ -1,46 +1,53 @@
 import os
 import uvicorn
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Body
+from typing import Any
 
-from lib.log_handler import setup_logger
-from lib.models.mueck import (
-    ImageRequests,
-    ImageRequest,
-    RawImageRequest,
-    ParsedImageRequest
-)
-from lib.queue import ImageQueue
+from lib.context import MueckContext
+from lib.slack_authorization import SlackAuthorization
+from lib.slack_event import SlackEvent
 
-logger = setup_logger()
 app = FastAPI()
 
-@app.post("/api/v1/mueck/request")
-def create_request(request: ImageRequest) -> RawImageRequest:
-    image_queue = ImageQueue()
+context = MueckContext()
 
-    raw_request = image_queue.queue_request(request)
+@app.get("/api/v1/mueck/slack-redirect-link")
+def get_slack_redirect_link(account_id: int, slack_client_id: int) -> dict:
+    authorization = SlackAuthorization(context)
 
-    return raw_request
+    return {
+        "redirect_link": authorization.get_slack_redirect_link(account_id, slack_client_id)
+    }
 
-@app.get("/api/v1/mueck/requests")
-def get_requests(include_processed=False) -> ImageRequests:
-    image_queue = ImageQueue()
+@app.get("/api/v1/mueck/slack-authorization")
+def get_slack_access_token(code: str, state: str) -> dict:
+    authorization = SlackAuthorization(context)
 
-    requests = image_queue.get_requests(include_processed=include_processed)
-    response = ImageRequests(requests=requests)
+    access_token = authorization.exchange_code_for_token(code, state)
 
-    return response
+    return "", 204
 
-@app.get("/api/v1/mueck/request/{request_id}")
-def get_request(request_id: int) -> RawImageRequest | ParsedImageRequest:
-    image_queue = ImageQueue()
+@app.post("/api/v1/mueck/slack-event")
+def post_slack_event(payload: Any = Body(None)) -> None:
+    event_type = payload["type"]
 
-    return image_queue.get_request(request_id)
+    if event_type == "url_verification":
+        challenge = payload.get("challenge")
+
+        return {
+            "challenge": challenge,
+        }
+
+    slack_event = SlackEvent.from_event_body(context, payload)
+
+    slack_event.save_event()
+
+    return "", 204
 
 if __name__ == "__main__":
-    certificate = os.environ.get("MUECK_SSL_CERTIFICATE")
-    private_key = os.environ.get("MUECK_SSL_PRIVATE_KEY")
+    certificate = os.environ.get("MUECK_TLS_CERTIFICATE")
+    private_key = os.environ.get("MUECK_TLS_PRIVATE_KEY")
 
     if certificate and private_key:
         uvicorn.run(
