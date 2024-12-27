@@ -2,7 +2,7 @@ import time
 
 from lib.context import MueckContext
 from lib.slack_event import SlackEvent
-from lib.tensor_art import TensorArtJob
+from lib.models.tensor_art import TensorArtRequestUpdate
 
 STATUS_MESSAGES = {
     "created": "Your request has been received.",
@@ -19,11 +19,18 @@ class MueckWorker:
     def run(self):
         self.context.logger.info("Mueck worker started.")
 
+        # We use this so we only print the "no events to process" message once.
+
+        sleeping = False
+
         while True:
             event = SlackEvent.from_next_unprocessed(self.context)
 
             if not event:
-                self.context.logger.info("No events to process. Sleeping for 10 seconds.")
+                if not sleeping:
+                    self.context.logger.info("No events to process. Sleeping.")
+
+                    sleeping = True
 
                 time.sleep(10)
 
@@ -39,23 +46,30 @@ class MueckWorker:
             event.reply_with_images()
             event.mark_event_as_processed()
 
+            sleeping = False
+
     def __wait_for_job_completion(self, event: SlackEvent):
         job_id = event.tensor_art_job.id
 
         while True:
             previous_status = event.tensor_art_job.status
-            status = event.tensor_art_job.get_job_status()
 
-            self.context.logger.info(f"job_id={job_id}, previous_status={previous_status}, status={status}")
+            status = event.tensor_art_job.get_status()
+            credits = event.tensor_art_job.credits
 
-            if status == "complete":
+            if status != previous_status:
+                self.context.logger.info(f"job_id={job_id}, previous_status={previous_status}, status={status}")
+
+                update = TensorArtRequestUpdate(
+                    status=status,
+                    credits=credits,
+                )
+
                 event.reply_with_status(status)
+                event.update_tensor_art_request(update)
 
-                return
-            else:
-                if previous_status is None or status != previous_status:
-                    event.update_tensor_art_request_status(status)
-                    event.reply_with_status(status)
+                if status == "complete":
+                    return
 
                 time.sleep(5)
 

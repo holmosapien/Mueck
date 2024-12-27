@@ -6,7 +6,7 @@ from lib.context import MueckContext
 from lib.tensor_art import TensorArtJob
 
 from lib.models.slack_event import SlackEventRecord
-from lib.models.tensor_art import TensorArtImage
+from lib.models.tensor_art import TensorArtImage, TensorArtRequestUpdate
 
 class SlackEventStore:
     def __init__(self, context: MueckContext):
@@ -126,7 +126,7 @@ class SlackEventStore:
             (
                 job_id,
                 prompt,
-                job_status,
+                status,
                 credits
             ) VALUES (
                 %s,
@@ -171,12 +171,42 @@ class SlackEventStore:
 
         return tensor_art_request_id
 
+    def update_tensor_art_request(self, tensor_art_request_id: int, update: TensorArtRequestUpdate):
+        updates = []
+        values = []
+
+        if update.status:
+            updates.append("status = %s")
+            values.append(update.status)
+
+        if update.credits:
+            updates.append("credits = %s")
+            values.append(update.credits)
+
+        if not updates:
+            return
+
+        values.append(tensor_art_request_id)
+
+        query = f"""
+            UPDATE
+                tensor_art_request
+            SET
+                {', '.join(updates)}
+            WHERE
+                id = %s
+        """
+
+        with self.context.dbh.pool.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, values)
+
     def update_tensor_art_request_status(self, tensor_art_request_id: int, status: str):
         query = """
             UPDATE
                 tensor_art_request
             SET
-                job_status = %s
+                status = %s
             WHERE
                 id = %s
         """

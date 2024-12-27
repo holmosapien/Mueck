@@ -53,7 +53,7 @@ CREATE TABLE tensor_art_request (
     id SERIAL PRIMARY KEY,
     prompt VARCHAR(1024) NOT NULL,
     job_id VARCHAR(64) NOT NULL,
-    job_status tensor_art_status NOT NULL DEFAULT 'created',
+    status tensor_art_status NOT NULL DEFAULT 'created',
     credits DECIMAL(6, 2) NOT NULL,
     created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

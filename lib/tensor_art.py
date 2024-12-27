@@ -107,7 +107,7 @@ class TensorArtJob:
 
         return
 
-    def get_job_status(self) -> str:
+    def get_status(self) -> str:
         if not self.id:
             raise ValueError("Job ID is required to get a job.")
 

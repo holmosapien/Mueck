@@ -9,3 +9,7 @@ class TensorArtImage(BaseModel):
     file_size: int
     width: int
     height: int
+
+class TensorArtRequestUpdate(BaseModel):
+    status: Optional[str] = None
+    credits: Optional[float] = None

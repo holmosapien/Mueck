@@ -11,6 +11,7 @@ from lib.slack_integration import SlackIntegration
 from lib.tensor_art import TensorArtJob
 
 from lib.models.slack_event import SlackEventRecord
+from lib.models.tensor_art import TensorArtRequestUpdate
 from lib.store.slack_event import SlackEventStore
 
 class SlackEvent:
@@ -134,8 +135,8 @@ class SlackEvent:
 
         self.tensor_art_job = job
 
-    def update_tensor_art_request_status(self, status: str):
-        self.store.update_tensor_art_request_status(self.tensor_art_request_id, status)
+    def update_tensor_art_request(self, update: TensorArtRequestUpdate):
+        self.store.update_tensor_art_request(self.tensor_art_request_id, update)
 
     def save_images(self):
         for image in self.tensor_art_job.images:
