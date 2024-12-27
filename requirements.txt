@@ -1,12 +1,6 @@
---index-url https://download.pytorch.org/whl/cu124
-accelerate
-diffusers
 fastapi
-protobuf
 psycopg[binary,pool]
 pydantic
-torch
-torchvision
-torchaudio
-transformers
+requests
+slack_sdk
 uvicorn

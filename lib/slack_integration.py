@@ -36,6 +36,10 @@ class SlackIntegration:
     def bot_user_id(self) -> str:
         return self.record.bot_user_id
 
+    @property
+    def access_token(self) -> str:
+        return self.record.access_token
+
     def create_integration(self):
         integration_id = self.integration_store.save_slack_integration(self.record)
 

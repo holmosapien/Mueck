@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import datetime
+import requests
 
-from typing import List
+from slack_sdk.web import WebClient
 
 from lib.context import MueckContext
 from lib.slack_integration import SlackIntegration
@@ -23,12 +24,13 @@ class SlackEvent:
         if not integration:
             raise Exception("Slack integration not found.")
 
-        created = datetime.datetime.fromtimestamp(float(timestamp))
+        created = datetime.datetime.now()
 
         slack_event_record = SlackEventRecord(
             id=0,
             slack_integration_id=integration.id,
             event=event_body,
+            tensor_art_request_id=None,
             created=created,
             processed=None
         )
@@ -54,8 +56,7 @@ class SlackEvent:
             store = SlackEventStore(context)
 
         self.store = store
-
-        self.tensor_art_request_id = None
+        self.tensor_art_job = None
 
     @property
     def id(self) -> int:
@@ -69,27 +70,84 @@ class SlackEvent:
     def event(self) -> dict:
         return self.record.event
 
+    @property
+    def channel(self) -> str:
+        return self.event["event"]["channel"]
+
+    @property
+    def thread_ts(self) -> str:
+        if "thread_ts" in self.event["event"]:
+            return self.event["event"]["thread_ts"]
+        else:
+            return self.event["event"]["event_ts"]
+
+    @property
+    def tensor_art_request_id(self) -> int:
+        return self.record.tensor_art_request_id
+
     def save_event(self):
         slack_event_record = self.store.save_event(self.record)
 
         self.record = slack_event_record
 
-    def process_event(self) -> TensorArtJob:
-        prompt = self.__extract_prompt_from_event()
+    def process_event(self):
+        if self.record.tensor_art_request_id:
+            # Resume a job already in progress.
+            job_id = self.store.get_tensor_art_job_id(self.tensor_art_request_id)
+            job = TensorArtJob(self.context, job_id=job_id)
+        else:
+            # Start a new job.
 
-        job = TensorArtJob(self.context, prompt=prompt)
+            prompt = self.__extract_prompt_from_event()
 
-        job.execute()
+            job = TensorArtJob(self.context, prompt=prompt)
 
-        # Save the request to the database so we can pick it up later if we crash.
+            job.execute()
 
-        self.tensor_art_request_id = self.store.save_tensor_art_request(self.slack_integration_id, job)
+            self.record.tensor_art_request_id = self.store.save_tensor_art_request(self.id, job)
 
-        return job
+        self.tensor_art_job = job
 
-    def save_images(self, images: List[TensorArtImage]):
-        for image in images:
+    def update_tensor_art_request_status(self, status: str):
+        self.store.update_tensor_art_request_status(self.tensor_art_request_id, status)
+
+    def save_images(self):
+        for image in self.tensor_art_job.images:
+            url = image.url
+
+            r = requests.get(url)
+
+            basename = f"{image.image_id}.png"
+            filename = f"{self.context.download_path}/{basename}"
+
+            with open(filename, "wb") as fp:
+                fp.write(r.content)
+
+            image.filename = filename
+
             self.store.save_tensor_art_image(self.tensor_art_request_id, image)
+
+    def reply_with_images(self):
+        integration = SlackIntegration.from_id(self.context, self.slack_integration_id)
+        access_token = integration.access_token
+
+        client = WebClient(token=access_token)
+
+        file_uploads = [
+            {
+                "file": image.filename,
+                "title": image.image_id,
+            } for image in self.tensor_art_job.images
+        ]
+
+        response = client.files_upload_v2(
+            file_uploads=file_uploads,
+            channel=self.channel,
+            thread_ts=self.thread_ts,
+            initial_comment="Here is your requested image.",
+        )
+
+        print(response)
 
     def mark_event_as_processed(self):
         self.store.mark_event_as_processed(self.id)

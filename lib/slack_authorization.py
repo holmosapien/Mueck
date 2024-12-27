@@ -32,6 +32,7 @@ class SlackAuthorization:
         bot_scopes = ",".join([
             "app_mentions:read",
             "chat:write",
+            "files:write",
         ])
 
         slack_client = SlackClient.from_id(self.context, slack_client_id)

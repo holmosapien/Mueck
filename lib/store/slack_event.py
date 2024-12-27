@@ -49,6 +49,7 @@ class SlackEventStore:
                 id,
                 slack_integration_id,
                 event,
+                tensor_art_request_id,
                 created,
                 processed
             FROM
@@ -72,24 +73,47 @@ class SlackEventStore:
                         id=row[0],
                         slack_integration_id=row[1],
                         event=row[2],
-                        created=row[3],
-                        processed=row[4],
+                        tensor_art_request_id=row[3],
+                        created=row[4],
+                        processed=row[5],
                     )
 
         return slack_event_record
 
-    def save_tensor_art_request(self, slack_integration_id: int, job: TensorArtJob) -> int:
+    def get_tensor_art_job_id(self, tensor_art_request_id: int) -> str:
+        query = """
+            SELECT
+                job_id
+            FROM
+                tensor_art_request
+            WHERE
+                id = %s
+        """
+
+        job_id = None
+
+        with self.context.dbh.pool.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, (tensor_art_request_id,))
+
+                for row in cursor:
+                    job_id = row[0]
+
+        if not job_id:
+            raise ValueError(f"Failed to retrieve job ID for tensor_art_request_id={tensor_art_request_id}.")
+
+        return job_id
+
+    def save_tensor_art_request(self, slack_event_id: int, job: TensorArtJob) -> int:
         query = """
             INSERT INTO
                 tensor_art_request
             (
-                slack_integration_id,
                 job_id,
                 prompt,
                 job_status,
                 credits
             ) VALUES (
-                %s,
                 %s,
                 %s,
                 %s,
@@ -99,12 +123,11 @@ class SlackEventStore:
                 id
         """
 
-        tensor_request_id = None
+        tensor_art_request_id = None
 
         with self.context.dbh.pool.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(query, (
-                    slack_integration_id,
                     job.id,
                     job.prompt,
                     job.status,
@@ -112,12 +135,45 @@ class SlackEventStore:
                 ))
 
                 for row in cursor:
-                    tensor_request_id = row[0]
+                    tensor_art_request_id = row[0]
 
-        if not tensor_request_id:
+        if not tensor_art_request_id:
             raise ValueError("Failed to save tensor art request.")
 
-        return tensor_request_id
+        query = """
+            UPDATE
+                slack_event
+            SET
+                tensor_art_request_id = %s
+            WHERE
+                id = %s
+        """
+
+        with self.context.dbh.pool.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, (
+                    tensor_art_request_id,
+                    slack_event_id,
+                ))
+
+        return tensor_art_request_id
+
+    def update_tensor_art_request_status(self, tensor_art_request_id: int, status: str):
+        query = """
+            UPDATE
+                tensor_art_request
+            SET
+                job_status = %s
+            WHERE
+                id = %s
+        """
+
+        with self.context.dbh.pool.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, (
+                    status,
+                    tensor_art_request_id,
+                ))
 
     def save_tensor_art_image(self, tensor_art_request_id: int, image: TensorArtImage):
         query = """

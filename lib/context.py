@@ -9,5 +9,6 @@ class MueckContext:
         self.logger = setup_logger()
 
         self.listener_hostname = os.getenv("MUECK_LISTENER_HOSTNAME")
+        self.tensorart_endpoint = os.getenv("TENSORART_ENDPOINT")
         self.tensorart_api_key = os.getenv("TENSORART_API_KEY")
         self.download_path = os.getenv("MUECK_DOWNLOAD_PATH")

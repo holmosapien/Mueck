@@ -7,16 +7,19 @@ from typing import List, Optional
 
 from lib.context import MueckContext
 
-from lib.models.tensor_art import (
-    TensorArtImage,
-)
+from lib.models.tensor_art import TensorArtImage
 
 class TensorArtJob:
-    def __init__(self, context: MueckContext, prompt: Optional[str] = None, job_id: Optional[str] = None):
+    def __init__(
+        self,
+        context: MueckContext,
+        prompt: Optional[str] = None,
+        job_id: Optional[str] = None,
+    ):
         self.context = context
 
         self.api_key = context.tensorart_api_key
-        self.endpoint = "https://ap-east-1.tensorart.cloud"
+        self.endpoint = context.tensorart_endpoint
 
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -37,6 +40,7 @@ class TensorArtJob:
 
         if job_id:
             self.id = job_id
+            self.status = "pending"
 
         if prompt:
             self.prompt = prompt
@@ -55,7 +59,7 @@ class TensorArtJob:
                     "type": "INPUT_INITIALIZE",
                     "inputInitialize": {
                         "count": 1,
-                        "seed": 324518450,
+                        "seed": -1,
                     }
                 },
                 {
@@ -103,7 +107,7 @@ class TensorArtJob:
 
         return
 
-    def get_job(self):
+    def get_job_status(self) -> str:
         if not self.id:
             raise ValueError("Job ID is required to get a job.")
 
@@ -114,29 +118,15 @@ class TensorArtJob:
         status = response["job"]["status"]
 
         if status in ["CREATED", "WAITING"]:
-            job = self.__parse_pending_job(response)
+            self.__parse_pending_job(response)
         elif status == "RUNNING":
-            job = self.__parse_running_job(response)
+            self.__parse_running_job(response)
         elif status == "SUCCESS":
-            job = self.__parse_successful_job(response)
+            self.__parse_successful_job(response)
         else:
             self.status = "pending"
 
-        return job
-
-    def save_images(self):
-        for image in self.images:
-            url = image.url
-
-            r = requests.get(url)
-
-            basename = f"{image.image_id}.png"
-            filename = f"{self.context.download_path}/{basename}"
-
-            with open(filename, "wb") as fp:
-                fp.write(r.content)
-
-            image.filename = filename
+        return self.status
 
     def __parse_pending_job(self, response):
         job_id = response["job"]["id"]
@@ -163,14 +153,14 @@ class TensorArtJob:
 
     def __parse_successful_job(self, response):
         self.id = response["job"]["id"]
-        self.status = "completed"
+        self.status = "complete"
         self.credits = response["job"]["credits"]
 
         success_info = response["job"]["successInfo"]
         images = success_info["images"]
         meta_map = success_info["imageExifMetaMap"]
 
-        self.images = []
+        self.images: List[TensorArtImage] = []
 
         for image in images:
             image_id = image["id"]

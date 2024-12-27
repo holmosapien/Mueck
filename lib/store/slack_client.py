@@ -21,18 +21,20 @@ class SlackClientStore:
                 id = %s
         """
 
-        cursor = self.context.dbh.query(query, (slack_client_id,))
-
         slack_client_record = None
 
-        for row in cursor:
-            slack_client_record = SlackClientRecord(
-                id=row[0],
-                api_client_id=row[1],
-                api_client_secret=row[2],
-                name=row[3],
-                created=row[4]
-            )
+        with self.context.dbh.pool.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, (slack_client_id,))
+
+                for row in cursor:
+                    slack_client_record = SlackClientRecord(
+                        id=row[0],
+                        api_client_id=row[1],
+                        api_client_secret=row[2],
+                        name=row[3],
+                        created=row[4]
+                    )
 
         return slack_client_record
 
@@ -59,17 +61,19 @@ class SlackClientStore:
                 1
         """
 
-        cursor = self.context.dbh.query(query, (state_id, account_id, slack_client_id,))
-
         slack_client_record = None
 
-        for row in cursor:
-            slack_client_record = SlackClientRecord(
-                id=row[0],
-                api_client_id=row[1],
-                api_client_secret=row[2],
-                name=row[3],
-                created=row[4]
-            )
+        with self.context.dbh.pool.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, (state_id, account_id, slack_client_id,))
+
+                for row in cursor:
+                    slack_client_record = SlackClientRecord(
+                        id=row[0],
+                        api_client_id=row[1],
+                        api_client_secret=row[2],
+                        name=row[3],
+                        created=row[4]
+                    )
 
         return slack_client_record

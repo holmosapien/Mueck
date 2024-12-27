@@ -39,15 +39,15 @@ CREATE TABLE slack_event (
     id SERIAL PRIMARY KEY,
     slack_integration_id INTEGER NOT NULL,
     event JSONB NOT NULL,
+    tensor_art_request_id INTEGER,
     created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     processed TIMESTAMP
 );
 
-CREATE TYPE tensor_art_status AS ENUM ('pending', 'running', 'completed', 'failed');
+CREATE TYPE tensor_art_status AS ENUM ('pending', 'running', 'complete', 'error');
 
 CREATE TABLE tensor_art_request (
     id SERIAL PRIMARY KEY,
-    slack_integration_id INTEGER NOT NULL,
     prompt VARCHAR(1024) NOT NULL,
     job_id VARCHAR(64) NOT NULL,
     job_status tensor_art_status NOT NULL DEFAULT 'pending',

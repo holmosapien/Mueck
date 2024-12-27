@@ -16,34 +16,36 @@ class MueckWorker:
             event = SlackEvent.from_next_unprocessed(self.context)
 
             if not event:
+                self.context.logger.info("No events to process. Sleeping for 10 seconds.")
+
                 time.sleep(10)
 
                 continue
 
             self.context.logger.info(f"Processing event_id={event.id}")
 
-            job = event.process_event()
+            event.process_event()
 
-            self.__wait_for_job_completion(job)
+            self.__wait_for_job_completion(event)
 
-            event.save_images(job.images)
+            event.save_images()
+            event.reply_with_images()
             event.mark_event_as_processed()
 
-    def __wait_for_job_completion(self, job: TensorArtJob):
-        previous_status = job.status
+    def __wait_for_job_completion(self, event: SlackEvent):
+        job_id = event.tensor_art_job.id
+        previous_status = event.tensor_art_job.status
 
         while True:
-            job.get_job()
+            status = event.tensor_art_job.get_job_status()
 
-            if job.status == "completed":
-                job.save_images()
+            self.context.logger.info(f"job_id={job_id}, status={status}")
 
+            if status == "complete":
                 return
             else:
-                print(f"Job is in status={job.status}")
-
-                # if job.status != previous_status:
-                #     job.update_status()
+                if previous_status is None or status != previous_status:
+                    event.update_tensor_art_request_status(status)
 
                 time.sleep(5)
 
