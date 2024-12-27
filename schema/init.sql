@@ -11,6 +11,7 @@ CREATE TABLE slack_client (
     id SERIAL PRIMARY KEY,
     api_client_id VARCHAR(64) NOT NULL,
     api_client_secret VARCHAR(64) NOT NULL,
+    signing_secret VARCHAR(64) NOT NULL,
     name VARCHAR(64) NOT NULL,
     created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

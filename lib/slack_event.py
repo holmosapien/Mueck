@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import datetime
+import hashlib
+import hmac
 import requests
 
 from slack_sdk.web import WebClient
 from slack_sdk.errors import SlackApiError
 
 from lib.context import MueckContext
+from lib.slack_client import SlackClient
 from lib.slack_integration import SlackIntegration
 from lib.tensor_art import TensorArtJob
 
@@ -15,6 +18,67 @@ from lib.models.tensor_art import TensorArtRequestUpdate
 from lib.store.slack_event import SlackEventStore
 
 class SlackEvent:
+    @classmethod
+    def from_verified_event(
+        cls,
+        context: MueckContext,
+        slack_signature: str,
+        verification_string: str,
+        event_body: dict
+    ) -> SlackEvent:
+        app_id = event_body["api_app_id"]
+        channel = event_body["event"]["channel"]
+        request_ts = event_body["event"]["ts"]
+        event_ts = event_body["event"]["event_ts"]
+        thread_ts = event_body["event"].get("thread_ts", event_ts)
+
+        #
+        # Get the Slack integration and client. We need the integration
+        # so that we can store the integration ID along with the event,
+        # and we need the client so we can get the signing secret that
+        # we'll use to verify the payload.
+        #
+
+        slack_integration = SlackIntegration.from_app_id(context, app_id)
+
+        if not slack_integration:
+            raise Exception("Slack integration not found.")
+
+        slack_client = SlackClient.from_id(context, slack_integration.slack_client_id)
+
+        if not slack_client:
+            raise Exception("Slack client not found.")
+
+        valid = cls.verify_slack_signature(
+            context,
+            slack_signature,
+            verification_string,
+            slack_client.signing_secret
+        )
+
+        if not valid:
+            raise Exception("Invalid event signature.")
+
+        #
+        # Now we can create the event record from the verified event.
+        #
+
+        created = datetime.datetime.now()
+
+        slack_event_record = SlackEventRecord(
+            id=0,
+            slack_integration_id=slack_integration.id,
+            event=event_body,
+            channel=channel,
+            request_ts=request_ts,
+            thread_ts=thread_ts,
+            tensor_art_request_id=None,
+            created=created,
+            processed=None
+        )
+
+        return cls(context, slack_event_record)
+
     @classmethod
     def from_event_body(cls, context: MueckContext, event_body: dict) -> SlackEvent:
         app_id = event_body["api_app_id"]
@@ -54,6 +118,34 @@ class SlackEvent:
             return None
 
         return cls(context, slack_event_record, store=store)
+
+    @staticmethod
+    def verify_slack_signature(context: MueckContext, slack_signature: str, verification_string: str, signing_secret: str) -> bool:
+
+        #
+        # Calculate the signature and see how it compares to what Slack sent.
+        #
+
+        computed_signature = "v0=" + hmac.new(
+            key=bytes(signing_secret.encode("utf-8")),
+            msg=verification_string.encode("utf-8"),
+            digestmod=hashlib.sha256
+        ).hexdigest()
+
+        valid = hmac.compare_digest(slack_signature, computed_signature)
+
+        if not valid:
+            context.logger.error(
+                f"Invalid signature: " +
+                f"slack_signature={slack_signature}, " +
+                f"computed_signature={computed_signature}"
+            )
+
+            return False
+
+        # context.logger.debug(f"Signature verified: slack_signature={slack_signature}, computed_signature={computed_signature}")
+
+        return True
 
     def __init__(self, context: MueckContext, slack_event_record: SlackEventRecord, store: SlackEventStore = None):
         self.context = context
@@ -192,8 +284,6 @@ class SlackEvent:
             channel=self.channel,
             thread_ts=self.thread_ts,
         )
-
-        print(response)
 
     def mark_event_as_processed(self):
         self.store.mark_event_as_processed(self.id)

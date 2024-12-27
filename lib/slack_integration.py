@@ -33,6 +33,10 @@ class SlackIntegration:
         return self.record.id
 
     @property
+    def slack_client_id(self) -> int:
+        return self.record.slack_client_id
+
+    @property
     def bot_user_id(self) -> str:
         return self.record.bot_user_id
 

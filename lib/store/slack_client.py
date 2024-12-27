@@ -13,6 +13,7 @@ class SlackClientStore:
                 id,
                 api_client_id,
                 api_client_secret,
+                signing_secret,
                 name,
                 created
             FROM
@@ -32,8 +33,9 @@ class SlackClientStore:
                         id=row[0],
                         api_client_id=row[1],
                         api_client_secret=row[2],
-                        name=row[3],
-                        created=row[4]
+                        signing_secret=row[3],
+                        name=row[4],
+                        created=row[5]
                     )
 
         return slack_client_record
@@ -44,6 +46,7 @@ class SlackClientStore:
                 c.id,
                 c.api_client_id,
                 c.api_client_secret,
+                c.signing_secret,
                 c.name,
                 c.created
             FROM
@@ -72,8 +75,9 @@ class SlackClientStore:
                         id=row[0],
                         api_client_id=row[1],
                         api_client_secret=row[2],
-                        name=row[3],
-                        created=row[4]
+                        signing_secret=row[3],
+                        name=row[4],
+                        created=row[5]
                     )
 
         return slack_client_record

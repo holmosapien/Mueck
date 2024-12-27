@@ -81,7 +81,7 @@ mueck=> INSERT INTO account (email, first_name, last_name) VALUES ('email@domain
 (1 row)
 
 INSERT 0 1
-mueck=> INSERT INTO slack_client (api_client_id, api_client_secret, name) VALUES ('client_id', 'client_secret', 'team_name') RETURNING id;
+mueck=> INSERT INTO slack_client (api_client_id, api_client_secret, signing_secret, name) VALUES ('client_id', 'client_secret', 'signing_secret', 'team_name') RETURNING id;
  id
 ----
   1
@@ -91,7 +91,7 @@ mueck=> INSERT INTO slack_client (api_client_id, api_client_secret, name) VALUES
 Now you can use the `/api/v1/mueck/slack-redirect-link` endpoint to get a link to the URL to install your application in your Slack workspace.
 
 ```
-$ curl `http://localhost:12030/api/v1/mueck/slack-redirect-link?account_id=1&slack_client_id=1`
+$ curl `http://localhost:11030/api/v1/mueck/slack-redirect-link?account_id=1&slack_client_id=1`
 ```
 
 Visit the link in your browser, approve the requested permissions, and now you can invite @Mueck into your channels for chatting.

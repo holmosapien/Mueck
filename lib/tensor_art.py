@@ -100,7 +100,7 @@ class TensorArtJob:
 
         response = r.json()
 
-        print(response)
+        self.context.logger.debug(f"response={response}")
 
         self.id = response["job"]["id"]
         self.status = "created" # response["job"]["status"]

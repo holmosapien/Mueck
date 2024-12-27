@@ -5,6 +5,9 @@ from lib.models.slack_authorization import SlackOAuthState
 from lib.models.slack_client import SlackClientRecord
 from lib.store.slack_client import SlackClientStore
 
+def verify_slack_event() -> bool:
+    return True
+
 class SlackClient:
     @classmethod
     def from_id(cls, context, slack_client_id: int) -> SlackClient:
@@ -42,3 +45,7 @@ class SlackClient:
     @property
     def api_client_secret(self) -> str:
         return self.record.api_client_secret
+
+    @property
+    def signing_secret(self) -> str:
+        return self.record.signing_secret
