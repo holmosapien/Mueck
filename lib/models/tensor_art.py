@@ -6,9 +6,9 @@ class TensorArtImage(BaseModel):
     url: str
     filename: Optional[str] = None
     seed: int
-    file_size: int
     width: int
     height: int
+    seed: int
 
 class TensorArtRequestUpdate(BaseModel):
     status: Optional[str] = None

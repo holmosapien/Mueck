@@ -14,6 +14,7 @@ class TensorArtJob:
         self,
         context: MueckContext,
         prompt: Optional[str] = None,
+        seed: Optional[int] = -1,
         job_id: Optional[str] = None,
     ):
         self.context = context
@@ -33,7 +34,7 @@ class TensorArtJob:
         self.credits: float = 0.0
         self.width: int = 0
         self.height: int = 0
-        self.seed: int = 0
+        self.seed: int = seed
         self.queue_position: int = 0
         self.queue_length: int = 0
         self.images = List[TensorArtImage]
@@ -59,7 +60,7 @@ class TensorArtJob:
                     "type": "INPUT_INITIALIZE",
                     "inputInitialize": {
                         "count": 1,
-                        "seed": -1,
+                        "seed": self.seed,
                     }
                 },
                 {
@@ -169,20 +170,13 @@ class TensorArtJob:
             image_id = image["id"]
             url = image["url"]
             seed = 0
-            file_size = 0
             width = 0
             height = 0
 
             if image_id in meta_map:
                 meta_info = meta_map[image_id]["meta"]
-                raw_file_size = meta_info["FileSize"]
                 image_size = meta_info["ImageSize"]
                 seed = meta_info["Seed"]
-
-                m = re.match(r"^(\d+) kB$", raw_file_size)
-
-                if m:
-                    file_size = int(m.group(1))
 
                 m = re.match(r"^(\d+)x(\d+)$", image_size)
 
@@ -194,7 +188,6 @@ class TensorArtJob:
                 image_id=image_id,
                 url=url,
                 seed=seed,
-                file_size=file_size,
                 width=width,
                 height=height,
             )

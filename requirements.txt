@@ -1,3 +1,4 @@
+Pillow
 fastapi
 psycopg[binary,pool]
 pydantic

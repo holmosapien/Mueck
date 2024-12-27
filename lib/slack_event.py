@@ -3,8 +3,11 @@ from __future__ import annotations
 import datetime
 import hashlib
 import hmac
+import json
+import re
 import requests
 
+from PIL import Image
 from slack_sdk.web import WebClient
 from slack_sdk.errors import SlackApiError
 
@@ -215,9 +218,9 @@ class SlackEvent:
         else:
             # Start a new job.
 
-            prompt = self.__extract_prompt_from_event()
+            (prompt, seed) = self.__extract_prompt_from_event()
 
-            job = TensorArtJob(self.context, prompt=prompt)
+            job = TensorArtJob(self.context, prompt=prompt, seed=seed)
 
             job.execute()
 
@@ -242,7 +245,10 @@ class SlackEvent:
             with open(filename, "wb") as fp:
                 fp.write(r.content)
 
+            seed = self.__get_image_seed(filename)
+
             image.filename = filename
+            image.seed = seed
 
             self.store.save_tensor_art_image(self.tensor_art_request_id, image)
 
@@ -275,7 +281,7 @@ class SlackEvent:
         file_uploads = [
             {
                 "file": image.filename,
-                "title": image.image_id,
+                "title": f"seed:{image.seed}",
             } for image in self.tensor_art_job.images
         ]
 
@@ -288,10 +294,11 @@ class SlackEvent:
     def mark_event_as_processed(self):
         self.store.mark_event_as_processed(self.id)
 
-    def __extract_prompt_from_event(self) -> str:
+    def __extract_prompt_from_event(self) -> tuple[str, int]:
         bot_user_id = self.slack_integration.bot_user_id
 
         prompt = ""
+        seed = -1
 
         for block in self.event["event"]["blocks"]:
             if block["type"] == "rich_text":
@@ -301,6 +308,41 @@ class SlackEvent:
                             if text["type"] == "user" and text["user_id"] != bot_user_id:
                                 prompt += text['user_id']
                             elif text["type"] == "text":
+                                #
+                                # See if the user has embedded the image seed in the prompt.
+                                #
+
+                                if "style" in text and "code" in text["style"] and text["style"]["code"]:
+                                    m = re.match(r"^seed:(\d+)$", text["text"])
+
+                                    if m:
+                                        seed = m.group(1)
+
+                                        continue
+
                                 prompt += text["text"]
 
-        return prompt
+        return (prompt, seed)
+
+    def __get_image_seed(self, filename: str) -> str:
+        try:
+            image = Image.open(filename)
+
+            image.load()
+
+            prompt = json.loads(image.info["prompt"])
+        except Exception as e:
+            self.context.logger.error(f"Failed to extract metadata from image: {e}", exc_info=True)
+
+            return 0
+
+        seed = 0
+
+        try:
+            for key in prompt:
+                if "inputs" in prompt[key] and "seed" in prompt[key]["inputs"]:
+                    seed = prompt[key]["inputs"]["seed"]
+        except Exception as e:
+            self.context.logger.error(f"Failed to parse image metadata: {e}", exc_info=True)
+
+        return seed

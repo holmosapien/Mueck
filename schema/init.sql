@@ -65,5 +65,6 @@ CREATE TABLE tensor_art_image (
     filename VARCHAR(512) NOT NULL,
     width INTEGER NOT NULL,
     height INTEGER NOT NULL,
+    seed NUMERIC NOT NULL,
     created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

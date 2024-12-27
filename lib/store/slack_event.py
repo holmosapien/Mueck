@@ -226,8 +226,10 @@ class SlackEventStore:
                 tensor_art_request_id,
                 filename,
                 width,
-                height
+                height,
+                seed
             ) VALUES (
+                %s,
                 %s,
                 %s,
                 %s,
@@ -241,7 +243,8 @@ class SlackEventStore:
                     tensor_art_request_id,
                     image.filename,
                     image.width,
-                    image.height
+                    image.height,
+                    image.seed,
                 ))
 
     def mark_event_as_processed(self, slack_event_id: int):
