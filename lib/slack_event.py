@@ -4,20 +4,23 @@ import datetime
 import requests
 
 from slack_sdk.web import WebClient
+from slack_sdk.errors import SlackApiError
 
 from lib.context import MueckContext
 from lib.slack_integration import SlackIntegration
 from lib.tensor_art import TensorArtJob
 
 from lib.models.slack_event import SlackEventRecord
-from lib.models.tensor_art import TensorArtImage
 from lib.store.slack_event import SlackEventStore
 
 class SlackEvent:
     @classmethod
     def from_event_body(cls, context: MueckContext, event_body: dict) -> SlackEvent:
         app_id = event_body["api_app_id"]
-        timestamp = event_body["event"]["ts"]
+        channel = event_body["event"]["channel"]
+        request_ts = event_body["event"]["ts"]
+        event_ts = event_body["event"]["event_ts"]
+        thread_ts = event_body["event"].get("thread_ts", event_ts)
 
         integration = SlackIntegration.from_app_id(context, app_id)
 
@@ -30,6 +33,9 @@ class SlackEvent:
             id=0,
             slack_integration_id=integration.id,
             event=event_body,
+            channel=channel,
+            request_ts=request_ts,
+            thread_ts=thread_ts,
             tensor_art_request_id=None,
             created=created,
             processed=None
@@ -56,7 +62,11 @@ class SlackEvent:
             store = SlackEventStore(context)
 
         self.store = store
+
         self.tensor_art_job = None
+
+        self.__slack_integration = None
+        self.__slack_client = None
 
     @property
     def id(self) -> int:
@@ -67,19 +77,32 @@ class SlackEvent:
         return self.record.slack_integration_id
 
     @property
+    def slack_integration(self) -> SlackIntegration:
+        if not self.__slack_integration:
+            integration = SlackIntegration.from_id(self.context, self.slack_integration_id)
+
+            self.__slack_integration = integration
+
+        return self.__slack_integration
+
+    @property
     def event(self) -> dict:
         return self.record.event
 
     @property
     def channel(self) -> str:
-        return self.event["event"]["channel"]
+        return self.record.channel
 
     @property
     def thread_ts(self) -> str:
-        if "thread_ts" in self.event["event"]:
-            return self.event["event"]["thread_ts"]
-        else:
-            return self.event["event"]["event_ts"]
+        return self.record.thread_ts
+
+    @property
+    def slack_client(self) -> WebClient:
+        if not self.__slack_client:
+            self.__slack_client = WebClient(token=self.slack_integration.access_token)
+
+        return self.__slack_client
 
     @property
     def tensor_art_request_id(self) -> int:
@@ -93,6 +116,7 @@ class SlackEvent:
     def process_event(self):
         if self.record.tensor_art_request_id:
             # Resume a job already in progress.
+
             job_id = self.store.get_tensor_art_job_id(self.tensor_art_request_id)
             job = TensorArtJob(self.context, job_id=job_id)
         else:
@@ -105,6 +129,8 @@ class SlackEvent:
             job.execute()
 
             self.record.tensor_art_request_id = self.store.save_tensor_art_request(self.id, job)
+
+            self.reply_with_status(job.status)
 
         self.tensor_art_job = job
 
@@ -127,11 +153,31 @@ class SlackEvent:
 
             self.store.save_tensor_art_image(self.tensor_art_request_id, image)
 
-    def reply_with_images(self):
-        integration = SlackIntegration.from_id(self.context, self.slack_integration_id)
-        access_token = integration.access_token
+    def reply_with_status(self, status: str):
+        client = self.slack_client
 
-        client = WebClient(token=access_token)
+        if status == "created":
+            emoji = "eyes"
+        elif status == "queued":
+            emoji = "hourglass_flowing_sand"
+        elif status == "running":
+            emoji = "runner"
+        elif status == "complete":
+            emoji = "white_check_mark"
+        else:
+            emoji = "question"
+
+        try:
+            client.reactions_add(
+                channel=self.channel,
+                name=emoji,
+                timestamp=self.record.request_ts,
+            )
+        except SlackApiError:
+            self.context.logger.error("Failed to add reaction to message.")
+
+    def reply_with_images(self):
+        client = self.slack_client
 
         file_uploads = [
             {
@@ -144,7 +190,6 @@ class SlackEvent:
             file_uploads=file_uploads,
             channel=self.channel,
             thread_ts=self.thread_ts,
-            initial_comment="Here is your requested image.",
         )
 
         print(response)
@@ -153,8 +198,7 @@ class SlackEvent:
         self.store.mark_event_as_processed(self.id)
 
     def __extract_prompt_from_event(self) -> str:
-        integration = SlackIntegration.from_id(self.context, self.slack_integration_id)
-        bot_user_id = integration.bot_user_id
+        bot_user_id = self.slack_integration.bot_user_id
 
         prompt = ""
 

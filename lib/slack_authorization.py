@@ -33,6 +33,7 @@ class SlackAuthorization:
             "app_mentions:read",
             "chat:write",
             "files:write",
+            "reactions:write",
         ])
 
         slack_client = SlackClient.from_id(self.context, slack_client_id)

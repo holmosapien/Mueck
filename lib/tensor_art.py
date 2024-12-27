@@ -103,7 +103,7 @@ class TensorArtJob:
         print(response)
 
         self.id = response["job"]["id"]
-        self.status = "pending" # response["job"]["status"]
+        self.status = "created" # response["job"]["status"]
 
         return
 
@@ -117,21 +117,27 @@ class TensorArtJob:
         response = r.json()
         status = response["job"]["status"]
 
-        if status in ["CREATED", "WAITING"]:
-            self.__parse_pending_job(response)
+        if status == "CREATED":
+            self.__parse_created_job(response)
+        elif status == "WAITING":
+            self.__parse_queued_job(response)
         elif status == "RUNNING":
             self.__parse_running_job(response)
         elif status == "SUCCESS":
             self.__parse_successful_job(response)
         else:
-            self.status = "pending"
+            self.status = "queued"
 
         return self.status
 
-    def __parse_pending_job(self, response):
-        job_id = response["job"]["id"]
-        status = "pending"
-        credits = response["job"]["credits"]
+    def __parse_created_job(self, response):
+        self.id = response["job"]["id"]
+        self.status = "created"
+
+    def __parse_queued_job(self, response):
+        self.id = response["job"]["id"]
+        self.status = "queued"
+        self.credits = response["job"]["credits"]
 
         queue_position = 0
         queue_length = 0
@@ -140,9 +146,6 @@ class TensorArtJob:
             queue_position = response["job"]["waitingInfo"]["queueRank"]
             queue_length = response["job"]["waitingInfo"]["queueLen"]
 
-        self.id = job_id
-        self.status = status
-        self.credits = credits
         self.queue_position = queue_position
         self.queue_length = queue_length
 

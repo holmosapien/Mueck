@@ -2,34 +2,25 @@
 
 ## Summary
 
-Mueck is a Slack bot that responds to prompts -- mentions or DMs -- to generate images with Stable Diffusion, and then return them to the channel or user that requested them.
+Mueck is a Slack bot that responds to prompts -- mentions or DMs -- to generate TensorArt jobs, and then return the resulting images to the channel or user that requested them.
 
 Note: This is a work in progress being built in the open.
 
 ## Architecture
 
-There are three main components to Mueck:
+There are two main components to Mueck:
 
-1. The Slack bot. This is responsible for registering itself with Slack via OAuth and then exposing an Events API webhook URL that will receive the mentions and DMs. When it receives a request, it is saved to a PostgreSQL database.
-2. The Mueck Worker. This runs in a constant loop, reading the queue of incoming image requests from the PostgreSQL database, generating the images, and returning them to Slack.
+1. The Slack bot. This is responsible for registering itself with Slack via OAuth and then exposing an Events API webhook URL that will receive mentions. When it receives a request, it is saved to a PostgreSQL database.
+2. The Mueck Worker. This runs in a constant loop, reading the queue of incoming image requests from the PostgreSQL database, generating the images and returning them to Slack.
 
 ## Running the Applications
 
 ### Dependencies
 
-You need to install PyTorch with CUDA support according to the [documentation at the official PyTorch site](https://pytorch.org/get-started/locally/).
-
-Other dependencies:
-
 ```
-accelerate
-diffusers
-fastapi
-protobuf
-psycopg[binary,pool]
-pydantic
-transformers
-uvicorn
+$ python3.13 -m venv venv
+$ source venv/bin/activate
+[venv] $ pip install -r requirements.txt
 ```
 
 ### Creating the Database
@@ -46,52 +37,61 @@ Now you can connect to the `mueck` database and create the tables in `schema/ini
 ### Environment Variables
 
 ```
-export HUGGINGFACE_ACCESS_TOKEN="<token>"
-export MUECK_OUTPUT_DIRECTORY="<output_directory>"
-export MUECK_DB_HOSTNAME="database.localdomain"
-export MUECK_DB_PORT="5432"
-export MUECK_DB_USERNAME="mueck"
-export MUECK_DB_PASSWORD="<password>"
-export MUECK_DB_DATABASE="mueck"
+export MUECK_LISTENER_HOSTNAME='mueck.domain'
+export MUECK_DOWNLOAD_PATH="<output_directory>"
 
-export MUECK_SSL_CERTIFICATE="/etc/openssl/private/mueck.crt"
-export MUECK_SSL_PRIVATE_KEY="/etc/openssl/private/mueck.key"
+export TENSORART_API_KEY='<api key>'
+
+export MUECK_DB_HOSTNAME='database.localdomain'
+export MUECK_DB_PORT='5432'
+export MUECK_DB_USERNAME='mueck'
+export MUECK_DB_PASSWORD='<password>'
+export MUECK_DB_DATABASE='mueck'
+
+# If you want TLS for your PostgreSQL connection:
+
+export MUECK_DB_CA='/etc/openssl/private/ca.crt'
+export MUECK_DB_CERTIFICATE='/etc/openssl/private/client.crt'
+export MUECK_DB_PRIVATE_KEY='/etc/openssl/private/client.key'
+
+# If you want FastAPI to listen on https:
+
+export MUECK_TLS_CERTIFICATE='/etc/openssl/private/mueck.crt'
+export MUECK_TLS_PRIVATE_KEY='/etc/openssl/private/mueck.key'
 ```
 
-### Issuing a Sample Request
+### Running the Listener and Worker
 
 ```
-$ curl -X POST -H "Content-type: application/json" -d '{"prompt": "A pulitzer prize winning photograph of a cat reclining in an Eames chair while smoking a cigarette", "user_id": "UXXX"}' -k https://localhost:11030/api/v1/mueck/request
+[venv] $ python3 mueck.py
+[venv] $ python3 mueckworker.py
 ```
 
-This will return a response with the request ID:
+### Setting up the Slack Application
+
+Edit `appManifest.json` according to your environment, and use it to create your Slack application at https://api.slack.com/apps.
+
+Once you have your client ID and client secret, you must add them to the database:
 
 ```
-{
-  "prompt": "A pulitzer prize winning photograph of a cat reclining in an Eames chair while smoking a cigarette",
-  "user_id": "UXXX",
-  "request_id": 5,
-  "processed": false,
-  "created": "2024-11-06T18:36:00.698934"
-}
+mueck=> INSERT INTO account (email, first_name, last_name) VALUES ('email@domain', 'First', 'Last') RETURNING id;
+ id
+----
+  1
+(1 row)
+
+INSERT 0 1
+mueck=> INSERT INTO slack_client (api_client_id, api_client_secret, name) VALUES ('client_id', 'client_secret', 'team_name') RETURNING id;
+ id
+----
+  1
+(1 row)
 ```
 
-This request ID can be polled to find out its status:
+Now you can use the `/api/v1/mueck/slack-redirect-link` endpoint to get a link to the URL to install your application in your Slack workspace.
 
 ```
-$ curl -s -H "Content-type: application/json" -k https://localhost:11030/api/v1/mueck/request/5 | jq .
-{
-  "prompt": "A pulitzer prize winning photograph of a cat reclining in an Eames chair while smoking a cigarette",
-  "user_id": "UXXX",
-  "request_id": 5,
-  "processed": true,
-  "created": "2024-11-06T18:36:00.698934",
-  "width": 512,
-  "height": 512,
-  "count": 1
-}
+$ curl `http://localhost:12030/api/v1/mueck/slack-redirect-link?account_id=1&slack_client_id=1`
 ```
 
-For some reason Stable Diffusion consistently likes to have the smoke billowing from the left ear of the cat.
-
-![A cat smoking a cigarette in an Eames chair.](https://holmosapien.com/a6f1191d90af4b52ac695124a3a6025b.png)
+Visit the link in your browser, approve the requested permissions, and now you can invite @Mueck into your channels for chatting.
