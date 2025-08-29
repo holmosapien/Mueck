@@ -12,13 +12,17 @@ from slack_sdk.web import WebClient
 from slack_sdk.errors import SlackApiError
 
 from lib.context import MueckContext
+from lib.generators.base import ImageGenerator
+from lib.generators.civit import CivitAI
+from lib.generators.tensor_art import TensorArtJob
 from lib.slack_client import SlackClient
 from lib.slack_integration import SlackIntegration
-from lib.tensor_art import TensorArtJob
 
 from lib.models.slack_event import SlackEventRecord
-from lib.models.tensor_art import TensorArtRequestUpdate
+from lib.models.generated_image import ImageGenerationRequest, ModelVendor
 from lib.store.slack_event import SlackEventStore
+
+DEFAULT_MODEL_VENDOR = ModelVendor.tensor_art
 
 class SlackEvent:
     @classmethod
@@ -75,7 +79,7 @@ class SlackEvent:
             channel=channel,
             request_ts=request_ts,
             thread_ts=thread_ts,
-            tensor_art_request_id=None,
+            image_generation_request_id=None,
             created=created,
             processed=None
         )
@@ -104,7 +108,7 @@ class SlackEvent:
             channel=channel,
             request_ts=request_ts,
             thread_ts=thread_ts,
-            tensor_art_request_id=None,
+            image_generation_request_id=None,
             created=created,
             processed=None
         )
@@ -159,7 +163,8 @@ class SlackEvent:
 
         self.store = store
 
-        self.tensor_art_job = None
+        self.model_vendor = DEFAULT_MODEL_VENDOR
+        self.image_generator: Optional[ImageGenerator] = None
 
         self.__slack_integration = None
         self.__slack_client = None
@@ -201,8 +206,8 @@ class SlackEvent:
         return self.__slack_client
 
     @property
-    def tensor_art_request_id(self) -> int:
-        return self.record.tensor_art_request_id
+    def image_generation_request_id(self) -> int:
+        return self.record.image_generation_request_id
 
     def save_event(self):
         slack_event_record = self.store.save_event(self.record)
@@ -210,31 +215,47 @@ class SlackEvent:
         self.record = slack_event_record
 
     def process_event(self):
-        if self.record.tensor_art_request_id:
+        image_generator: Optional[ImageGenerator] = None
+
+        if self.record.image_generation_request_id:
             # Resume a job already in progress.
 
-            job_id = self.store.get_tensor_art_job_id(self.tensor_art_request_id)
-            job = TensorArtJob(self.context, job_id=job_id)
+            image_generation_request = self.store.get_image_generation_request(self.image_generation_request_id)
+            model_vendor = image_generation_request.model_vendor
+            job_id = image_generation_request.job_id
+
+            if model_vendor == ModelVendor.tensor_art:
+                image_generator = TensorArtJob(self.context, job_id=job_id)
+            elif model_vendor == ModelVendor.civitai:
+                token = image_generation_request.token
+                image_generator = CivitAI(self.context, job_id=job_id, token=token)
         else:
             # Start a new job.
 
             (prompt, seed) = self.__extract_prompt_from_event()
 
-            job = TensorArtJob(self.context, prompt=prompt, seed=seed)
+            self.__select_model_vendor(prompt)
 
-            job.execute()
+            if self.model_vendor == ModelVendor.civitai:
+                image_generator = CivitAI(self.context, prompt=prompt, seed=seed)
+            elif self.model_vendor == ModelVendor.tensor_art:
+                image_generator = TensorArtJob(self.context, prompt=prompt, seed=seed)
+            else:
+                raise Exception(f"Unknown model vendor: {self.model_vendor}")
 
-            self.record.tensor_art_request_id = self.store.save_tensor_art_request(self.id, job)
+            image_generator.execute()
 
-            self.reply_with_status(job.status)
+            self.record.image_generation_request_id = self.store.save_image_generation_request(self.id, image_generator)
 
-        self.tensor_art_job = job
+            self.reply_with_status(image_generator.status)
 
-    def update_tensor_art_request(self, update: TensorArtRequestUpdate):
-        self.store.update_tensor_art_request(self.tensor_art_request_id, update)
+        self.image_generator = image_generator
+
+    def update_image_generation_request(self, update: ImageGenerationRequestUpdate):
+        self.store.update_image_generation_request(self.image_generation_request_id, update)
 
     def save_images(self):
-        for image in self.tensor_art_job.images:
+        for image in self.image_generator.images:
             url = image.url
 
             r = requests.get(url)
@@ -245,12 +266,14 @@ class SlackEvent:
             with open(filename, "wb") as fp:
                 fp.write(r.content)
 
-            seed = self.__get_image_seed(filename)
-
             image.filename = filename
-            image.seed = seed
 
-            self.store.save_tensor_art_image(self.tensor_art_request_id, image)
+            if not image.seed:
+                seed = self.__get_image_seed(filename)
+
+                image.seed = seed
+
+            self.store.save_generated_image(self.image_generation_request_id, image)
 
     def reply_with_status(self, status: str):
         client = self.slack_client
@@ -282,7 +305,7 @@ class SlackEvent:
             {
                 "file": image.filename,
                 "title": f"seed:{image.seed}",
-            } for image in self.tensor_art_job.images
+            } for image in self.image_generator.images
         ]
 
         response = client.files_upload_v2(
@@ -303,7 +326,7 @@ class SlackEvent:
         for block in self.event["event"]["blocks"]:
             if block["type"] == "rich_text":
                 for element in block["elements"]:
-                    if element["type"] == "rich_text_section":
+                    if element["type"] in ["rich_text_section", "rich_text_quote"]:
                         for text in element["elements"]:
                             if text["type"] == "user" and text["user_id"] != bot_user_id:
                                 prompt += text['user_id']
@@ -323,6 +346,12 @@ class SlackEvent:
                                 prompt += text["text"]
 
         return (prompt, seed)
+
+    def __select_model_vendor(self, prompt: str):
+        if "nsfw" in prompt.lower():
+            self.model_vendor = ModelVendor.civitai
+        else:
+            self.model_vendor = ModelVendor.tensor_art
 
     def __get_image_seed(self, filename: str) -> str:
         try:

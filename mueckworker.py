@@ -2,7 +2,7 @@ import time
 
 from lib.context import MueckContext
 from lib.slack_event import SlackEvent
-from lib.models.tensor_art import TensorArtRequestUpdate
+from lib.models.generated_image import ImageGenerationRequestUpdate
 
 STATUS_MESSAGES = {
     "created": "Your request has been received.",
@@ -49,29 +49,30 @@ class MueckWorker:
             sleeping = False
 
     def __wait_for_job_completion(self, event: SlackEvent):
-        job_id = event.tensor_art_job.id
+        model_vendor = event.image_generator.model_vendor
+        job_id = event.image_generator.id
 
         while True:
-            previous_status = event.tensor_art_job.status
+            previous_status = event.image_generator.status
 
-            status = event.tensor_art_job.get_status()
-            credits = event.tensor_art_job.credits
+            status = event.image_generator.get_status()
+            credits = event.image_generator.credits
 
             if status != previous_status:
                 self.context.logger.info(f"job_id={job_id}, previous_status={previous_status}, status={status}")
 
-                update = TensorArtRequestUpdate(
+                update = ImageGenerationRequestUpdate(
                     status=status,
                     credits=credits,
                 )
 
                 event.reply_with_status(status)
-                event.update_tensor_art_request(update)
+                event.update_image_generation_request(update)
 
                 if status == "complete":
                     return
 
-                time.sleep(5)
+            time.sleep(5)
 
 if __name__ == "__main__":
     worker = MueckWorker()

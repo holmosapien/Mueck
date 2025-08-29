@@ -16,9 +16,19 @@ class DatabasePool:
         tls_private_key = os.getenv("MUECK_DB_PRIVATE_KEY")
 
         connection_params = (
-            f"dbname={database_name} user={database_user} password={database_password} " +
-            f"host={database_host} port={database_port} sslmode=require " +
-            f"sslrootcert={tls_ca} sslcert={tls_certificate} sslkey={tls_private_key}"
+            f"dbname={database_name} " +
+            f"user={database_user} " +
+            f"password={database_password} " +
+            f"host={database_host} " +
+            f"port={database_port}"
         )
+
+        if tls_ca and tls_certificate and tls_private_key:
+            connection_params += (
+                f" sslmode=require" +
+                f" sslrootcert={tls_ca}" +
+                f" sslcert={tls_certificate}" +
+                f" sslkey={tls_private_key}"
+            )
 
         self.pool = ConnectionPool(conninfo=connection_params)

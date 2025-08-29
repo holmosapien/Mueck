@@ -9,6 +9,6 @@ class SlackEventRecord(BaseModel):
     channel: str
     request_ts: str
     thread_ts: str
-    tensor_art_request_id: Optional[int]
+    image_generation_request_id: Optional[int]
     created: datetime
     processed: Optional[datetime]

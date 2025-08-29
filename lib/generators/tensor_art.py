@@ -7,9 +7,15 @@ from typing import List, Optional
 
 from lib.context import MueckContext
 
-from lib.models.tensor_art import TensorArtImage
+from lib.generators.base import ImageGenerator
+from lib.models.generated_image import GeneratedImage, ModelVendor
 
-class TensorArtJob:
+FLUX_CHECKPOINT = "757279507095956705"
+FLUX_PONY_CHECKPOINT = "763947005736342551"
+OBLIVIOUS_MIX_ILLUSTRIOUS_CHECKPOINT = "808939700149555823"
+STABLE_DIFFUSION_35_CHECKPOINT = "808211415430243917"
+
+class TensorArtJob(ImageGenerator):
     def __init__(
         self,
         context: MueckContext,
@@ -17,7 +23,9 @@ class TensorArtJob:
         seed: Optional[int] = -1,
         job_id: Optional[str] = None,
     ):
-        self.context = context
+        super().__init__(context)
+
+        self.model_vendor = ModelVendor.tensor_art
 
         self.api_key = context.tensorart_api_key
         self.endpoint = context.tensorart_endpoint
@@ -28,16 +36,8 @@ class TensorArtJob:
             "Accept": "application/json",
         }
 
-        self.id: Optional[str] = None
-        self.prompt: str = ""
-        self.status: Optional[str] = None
-        self.credits: float = 0.0
-        self.width: int = 0
-        self.height: int = 0
-        self.seed: int = seed
         self.queue_position: int = 0
         self.queue_length: int = 0
-        self.images = List[TensorArtImage]
 
         if job_id:
             self.id = job_id
@@ -66,22 +66,10 @@ class TensorArtJob:
                 {
                     "type": "DIFFUSION",
                     "diffusion": {
-                        "cfgScale": 1,
+                        "cfgScale": 1.5,
                         "clipSkip": 1,
                         "guidance": 3.5,
                         "height": 1536,
-                        "lora": {
-                            "items": [
-                            {
-                                "loraModel": "793264151850916361",
-                                "weight": 0.8,
-                            },
-                            {
-                                "loraModel": "785002322695696514",
-                                "weight": 0.7,
-                            }
-                            ]
-                        },
                         "prompts": [
                             {
                                 "text": self.prompt,
@@ -89,7 +77,7 @@ class TensorArtJob:
                         ],
                         "sampler": "Euler a",
                         "sdVae": "Automatic",
-                        "sd_model": "757279507095956705",
+                        "sd_model": FLUX_PONY_CHECKPOINT,
                         "steps": 20,
                         "width": 1024,
                     }
@@ -164,7 +152,7 @@ class TensorArtJob:
         images = success_info["images"]
         meta_map = success_info["imageExifMetaMap"]
 
-        self.images: List[TensorArtImage] = []
+        self.images: List[GeneratedImage] = []
 
         for image in images:
             image_id = image["id"]
@@ -184,7 +172,7 @@ class TensorArtJob:
                     width = int(m.group(1))
                     height = int(m.group(2))
 
-            image_record = TensorArtImage(
+            image_record = GeneratedImage(
                 image_id=image_id,
                 url=url,
                 seed=seed,

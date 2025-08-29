@@ -1,4 +1,5 @@
 Pillow
+civitai-py
 fastapi
 psycopg[binary,pool]
 pydantic

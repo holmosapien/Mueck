@@ -3,10 +3,10 @@ import json
 from typing import Optional
 
 from lib.context import MueckContext
-from lib.tensor_art import TensorArtJob
 
+from lib.generators.base import ImageGenerator
 from lib.models.slack_event import SlackEventRecord
-from lib.models.tensor_art import TensorArtImage, TensorArtRequestUpdate
+from lib.models.generated_image import GeneratedImage, ImageGenerationRequest, ImageGenerationRequestUpdate
 
 class SlackEventStore:
     def __init__(self, context: MueckContext):
@@ -55,21 +55,25 @@ class SlackEventStore:
     def get_next_unprocessed_event(self) -> Optional[SlackEventRecord]:
         query = """
             SELECT
-                id,
-                slack_integration_id,
-                event,
-                channel,
-                request_ts,
-                thread_ts,
-                tensor_art_request_id,
-                created,
-                processed
+                se.id,
+                se.slack_integration_id,
+                se.event,
+                se.channel,
+                se.request_ts,
+                se.thread_ts,
+                ir.id AS image_generation_request_id,
+                se.created,
+                se.processed
             FROM
-                slack_event
+                slack_event se
+            LEFT JOIN
+                image_generation_request ir
+            ON
+                se.id = ir.slack_event_id
             WHERE
-                processed IS NULL
+                se.processed IS NULL
             ORDER BY
-                created ASC
+                se.created ASC
             LIMIT
                 1
         """
@@ -88,47 +92,60 @@ class SlackEventStore:
                         channel=row[3],
                         request_ts=row[4],
                         thread_ts=row[5],
-                        tensor_art_request_id=row[6],
+                        image_generation_request_id=row[6],
                         created=row[7],
                         processed=row[8],
                     )
 
         return slack_event_record
 
-    def get_tensor_art_job_id(self, tensor_art_request_id: int) -> str:
+    def get_image_generation_request(self, image_generation_request_id: int) -> ImageGenerationRequest:
         query = """
             SELECT
-                job_id
+                model_vendor,
+                job_id,
+                token
             FROM
-                tensor_art_request
+                image_generation_request
             WHERE
                 id = %s
         """
 
-        job_id = None
+        image_generation_request = None
 
         with self.context.dbh.pool.connection() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(query, (tensor_art_request_id,))
+                cursor.execute(query, (image_generation_request_id,))
 
                 for row in cursor:
-                    job_id = row[0]
+                    image_generation_request = ImageGenerationRequest(
+                        id=image_generation_request_id,
+                        model_vendor=row[0],
+                        job_id=row[1],
+                        token=row[2],
+                    )
 
-        if not job_id:
-            raise ValueError(f"Failed to retrieve job ID for tensor_art_request_id={tensor_art_request_id}.")
+        if not image_generation_request:
+            raise ValueError(f"Failed to retrieve image_generation_request_id={image_generation_request_id}.")
 
-        return job_id
+        return image_generation_request
 
-    def save_tensor_art_request(self, slack_event_id: int, job: TensorArtJob) -> int:
-        request_query = """
+    def save_image_generation_request(self, slack_event_id: int, image_generator: ImageGenerator) -> int:
+        query = """
             INSERT INTO
-                tensor_art_request
+                image_generation_request
             (
-                job_id,
+                slack_event_id,
+                model_vendor,
                 prompt,
+                job_id,
+                token,
                 status,
                 credits
             ) VALUES (
+                %s,
+                %s,
+                %s,
                 %s,
                 %s,
                 %s,
@@ -138,40 +155,29 @@ class SlackEventStore:
                 id
         """
 
-        event_query = """
-            UPDATE
-                slack_event
-            SET
-                tensor_art_request_id = %s
-            WHERE
-                id = %s
-        """
-
-        tensor_art_request_id = None
+        image_generation_request_id = None
 
         with self.context.dbh.pool.connection() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(request_query, (
-                    job.id,
-                    job.prompt,
-                    job.status,
-                    job.credits
+                cursor.execute(query, (
+                    slack_event_id,
+                    image_generator.model_vendor,
+                    image_generator.prompt,
+                    image_generator.id,
+                    image_generator.token,
+                    image_generator.status,
+                    image_generator.credits
                 ))
 
                 for row in cursor:
-                    tensor_art_request_id = row[0]
+                    image_generation_request_id = row[0]
 
-                cursor.execute(event_query, (
-                    tensor_art_request_id,
-                    slack_event_id,
-                ))
+        if not image_generation_request_id:
+            raise ValueError("Failed to save image generation request.")
 
-        if not tensor_art_request_id:
-            raise ValueError("Failed to save tensor art request.")
+        return image_generation_request_id
 
-        return tensor_art_request_id
-
-    def update_tensor_art_request(self, tensor_art_request_id: int, update: TensorArtRequestUpdate):
+    def update_image_generation_request(self, image_generation_request_id: int, update: ImageGenerationRequestUpdate):
         updates = []
         values = []
 
@@ -186,11 +192,11 @@ class SlackEventStore:
         if not updates:
             return
 
-        values.append(tensor_art_request_id)
+        values.append(image_generation_request_id)
 
         query = f"""
             UPDATE
-                tensor_art_request
+                image_generation_request
             SET
                 {', '.join(updates)}
             WHERE
@@ -201,29 +207,12 @@ class SlackEventStore:
             with connection.cursor() as cursor:
                 cursor.execute(query, values)
 
-    def update_tensor_art_request_status(self, tensor_art_request_id: int, status: str):
-        query = """
-            UPDATE
-                tensor_art_request
-            SET
-                status = %s
-            WHERE
-                id = %s
-        """
-
-        with self.context.dbh.pool.connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(query, (
-                    status,
-                    tensor_art_request_id,
-                ))
-
-    def save_tensor_art_image(self, tensor_art_request_id: int, image: TensorArtImage):
+    def save_generated_image(self, image_generation_request_id: int, image: GeneratedImage):
         query = """
             INSERT INTO
-                tensor_art_image
+                generated_image
             (
-                tensor_art_request_id,
+                image_generation_request_id,
                 filename,
                 width,
                 height,
@@ -240,7 +229,7 @@ class SlackEventStore:
         with self.context.dbh.pool.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(query, (
-                    tensor_art_request_id,
+                    image_generation_request_id,
                     image.filename,
                     image.width,
                     image.height,

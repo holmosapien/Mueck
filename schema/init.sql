@@ -43,25 +43,28 @@ CREATE TABLE slack_event (
     channel VARCHAR(32) NOT NULL,
     request_ts VARCHAR(32) NOT NULL,
     thread_ts VARCHAR(32) NOT NULL,
-    tensor_art_request_id INTEGER,
     created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     processed TIMESTAMP
 );
 
-CREATE TYPE tensor_art_status AS ENUM ('created', 'queued', 'running', 'complete', 'error');
+CREATE TYPE image_generation_model_vendor AS ENUM ('tensor_art', 'civitai');
+CREATE TYPE image_generation_status AS ENUM ('created', 'queued', 'running', 'complete', 'error');
 
-CREATE TABLE tensor_art_request (
+CREATE TABLE image_generation_request (
     id SERIAL PRIMARY KEY,
-    prompt VARCHAR(1024) NOT NULL,
+    slack_event_id INTEGER NOT NULL,
+    model_vendor image_generation_model_vendor NOT NULL,
+    prompt VARCHAR(8192) NOT NULL,
     job_id VARCHAR(64) NOT NULL,
-    status tensor_art_status NOT NULL DEFAULT 'created',
+    token VARCHAR(128),
+    status image_generation_status NOT NULL DEFAULT 'created',
     credits DECIMAL(6, 2) NOT NULL,
     created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE tensor_art_image (
+CREATE TABLE generated_image (
     id SERIAL PRIMARY KEY,
-    tensor_art_request_id INTEGER NOT NULL,
+    image_generation_request_id INTEGER NOT NULL,
     filename VARCHAR(512) NOT NULL,
     width INTEGER NOT NULL,
     height INTEGER NOT NULL,
